@@ -21,8 +21,9 @@ namespace WpfApp3
             var timerConfig = new TimerConfiguration
             {
                 HeatingDuration = TimeSpan.FromSeconds(5),
-                CoolingDuration = TimeSpan.FromSeconds(10),
-                MaxHeatTime = TimeSpan.FromSeconds(8),
+                CoolingDuration = TimeSpan.FromSeconds(8),
+                MaxCoolingTime = TimeSpan.FromSeconds(10),
+                MaxHeatTime = TimeSpan.FromSeconds(7),
                 ScanRequired = false,
                 FifoMode = false,
                 AutoTransfer = false
