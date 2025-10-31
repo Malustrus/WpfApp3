@@ -24,8 +24,7 @@ namespace WpfApp3
         // État interne
         private DateTime _startTime;
         private bool _isDisposed;
-        private TimerMode _timerMode;
-        private TimerState oldState;
+        TimeSpan currentDuration;
 
         // Événements
         public event EventHandler<TimerStateChangedEventArgs> StateChanged;
@@ -43,7 +42,6 @@ namespace WpfApp3
             ToggleCommand = new RelayCommand(OnToggle);
             RequestTransferCommand = new RelayCommand(OnRequestTransfer);
             State = TimerState.Idle;
-            oldState = TimerState.Idle;
             Color = Configuration.IdleColor;
             currentDuration = Configuration.HeatingDuration;
             UpdateElapsedText(currentDuration);
@@ -58,8 +56,7 @@ namespace WpfApp3
             
             if(elapsed > currentDuration && currentDuration > TimeSpan.Zero)
             {
-                timeElapsed = true;
-                MoveToNextState();
+                HandleEvent(TimerEvent.TickElapsed);
             }
 
             Application.Current.Dispatcher.InvokeAsync(() =>
@@ -68,113 +65,139 @@ namespace WpfApp3
             });
         }
 
-        bool toggleRequest;
-        bool timeElapsed;
-        TimeSpan currentDuration;
+
         // Gestion des états
-        private void MoveToNextState()
+
+        private void HandleEvent(TimerEvent evt)
         {
-            switch (State)
+            var next = GetNextState(State, evt);
+            if (next != State)
+            {
+                MoveToNextState(next);
+            }
+        }
+
+        private TimerState GetNextState(TimerState state, TimerEvent timerEvent)
+        {
+            return (state, timerEvent) switch
+            {
+                // --- IDLE ---
+                (TimerState.Idle, TimerEvent.Toggle)
+                    => TimerState.Heating,
+
+                // --- HEATING ---
+                (TimerState.Heating, TimerEvent.Toggle)
+                    => TimerState.Idle,
+
+                (TimerState.Heating, TimerEvent.TickElapsed) when Configuration.CoolingDuration > TimeSpan.Zero
+                    => TimerState.WaitingForCooling,
+
+                (TimerState.Heating, TimerEvent.TickElapsed)
+                    => TimerState.HeatingDone,
+
+                // --- HEATING DONE ---
+                (TimerState.HeatingDone, TimerEvent.Toggle)
+                    => TimerState.Idle,
+
+                (TimerState.HeatingDone, TimerEvent.TickElapsed)
+                    => TimerState.HeatTimeExceeded,
+
+                // --- HEAT TIME EXCEEDED ---
+                (TimerState.HeatTimeExceeded, TimerEvent.Toggle)
+                    => TimerState.Idle,
+
+                // --- WAITING FOR COOLING ---
+                (TimerState.WaitingForCooling, TimerEvent.Toggle)
+                    => TimerState.Cooling,
+
+                (TimerState.WaitingForCooling, TimerEvent.TickElapsed)
+                    => TimerState.HeatTimeExceeded,
+
+                // --- COOLING ---
+                (TimerState.Cooling, TimerEvent.Toggle)
+                    => TimerState.Idle,
+
+                (TimerState.Cooling, TimerEvent.TickElapsed)
+                    => TimerState.CoolingDone,
+
+                // --- COOLING DONE ---
+                (TimerState.CoolingDone, TimerEvent.Toggle)
+                    => TimerState.Idle,
+
+                (TimerState.CoolingDone, TimerEvent.TickElapsed)
+                    => TimerState.CoolingTimeExceeded,
+
+                // --- COOLING TIME EXCEEDED ---
+                (TimerState.CoolingTimeExceeded, TimerEvent.Toggle)
+                    => TimerState.Idle,
+
+                // Default = stay in same state
+                _ => state
+            };
+        }
+
+        private void MoveToNextState(TimerState nextState)
+        {
+            
+            switch (nextState)
             {
                 case TimerState.Idle:
-                    State = TimerState.Heating;
+                    Color = Configuration.IdleColor;
+                    currentDuration = Configuration.HeatingDuration;
                     break;
-                case TimerState.Heating when toggleRequest:
-                    State = TimerState.Idle;
+
+                case TimerState.Heating:
+                    Color = Configuration.HeatingColor;
+                    currentDuration = Configuration.HeatingDuration;
                     break;
-                case TimerState.Heating when timeElapsed && Configuration.CoolingDuration > TimeSpan.Zero:
-                    State = TimerState.WaitingForCooling;
+
+                case TimerState.HeatingDone:
+                    Color = Configuration.HeatingDoneColor;
+                    currentDuration = Configuration.MaxHeatTime;
                     break;
-                case TimerState.Heating when timeElapsed && Configuration.CoolingDuration <= TimeSpan.Zero:
-                    State = TimerState.HeatingDone;
+
+                case TimerState.WaitingForCooling:
+                    Color = Configuration.WaitingForCoolingColor;
+                    currentDuration = Configuration.MaxHeatTime;
                     break;
-                case TimerState.HeatingDone when toggleRequest && !timeElapsed:
-                    State = TimerState.Idle;
+
+                case TimerState.Cooling:
+                    Color = Configuration.CoolingColor;
+                    currentDuration = Configuration.CoolingDuration;
                     break;
-                case TimerState.HeatingDone when !toggleRequest && timeElapsed:
-                    State = TimerState.HeatTimeExceeded;
+
+                case TimerState.CoolingDone:
+                    Color = Configuration.CoolingDoneColor;
+                    currentDuration = Configuration.MaxCoolingTime;
                     break;
-                case TimerState.HeatTimeExceeded when toggleRequest:
-                    State = TimerState.Idle;
+
+                case TimerState.HeatTimeExceeded:
+                    Color = Configuration.HeatExceededColor;
                     break;
-                case TimerState.WaitingForCooling when !toggleRequest && timeElapsed:
-                    State = TimerState.HeatTimeExceeded;
-                    break;
-                case TimerState.WaitingForCooling when toggleRequest && !timeElapsed:
-                    State = TimerState.Cooling;
-                    break;
-                case TimerState.Cooling when toggleRequest && !timeElapsed:
-                    State = TimerState.Idle;
-                    break;
-                case TimerState.Cooling when !toggleRequest && timeElapsed:
-                    State = TimerState.CoolingDone;
-                    break;
-                case TimerState.CoolingDone when toggleRequest && !timeElapsed:
-                    State = TimerState.Idle;
-                    break;
-                case TimerState.CoolingDone when !toggleRequest && timeElapsed:
-                    State = TimerState.CoolingTimeExceeded;
-                    break;
-                case TimerState.CoolingTimeExceeded when toggleRequest:
-                    State = TimerState.Idle;
+
+                case TimerState.CoolingTimeExceeded:
+                    Color = Configuration.HeatExceededColor;
                     break;
             }
 
-            if(State != oldState)
-            {
-                oldState = State;
-                switch (State)
-                {
-                    case TimerState.Idle:
-                        TimerManager.Instance.Unregister(this);                       
-                        Color = Configuration.IdleColor;                        
-                        LastReadyTime = DateTime.Now;
-                        break;
-                    case TimerState.Heating:                        
-                        TimerManager.Instance.Register(this);
-                        Color = Configuration.HeatingColor;
-                        currentDuration = Configuration.HeatingDuration;
-                        break;
-                    case TimerState.HeatingDone:
-                        Color = Configuration.HeatingDoneColor;
-                        currentDuration = Configuration.MaxHeatTime;
-                        break;
-                    case TimerState.Cooling:
-                        Color = Configuration.CoolingColor;
-                        currentDuration = Configuration.CoolingDuration;
-                        break;
-                    case TimerState.CoolingDone:
-                        Color = Configuration.CoolingDoneColor;
-                        currentDuration = Configuration.MaxCoolingTime;
-                        break;
-                    case TimerState.WaitingForCooling:
-                        Color = Configuration.WaitingForCoolingColor;
-                        currentDuration = Configuration.MaxHeatTime;
-                        break;
-                    case TimerState.HeatTimeExceeded:
-                        Color = Configuration.HeatExceededColor;
-                        break;
-                    case TimerState.CoolingTimeExceeded:
-                        Color = Configuration.HeatExceededColor;
-                        break;
-                }
-                _startTime = DateTime.Now;
-                Label = State.ToString();
-                UpdateElapsedText(currentDuration);
-                System.Diagnostics.Debug.WriteLine(State);
-            }
-            toggleRequest = false;
-            timeElapsed = false;
+            State = nextState;
+
+            // Reset timer for the new state
+            _startTime = DateTime.Now;
+
+            // Mise à jour du texte
+            Label = State.ToString();
+            UpdateElapsedText(currentDuration);
+
+            System.Diagnostics.Debug.WriteLine(State);
+            if (ShouldHaveTimer(State))
+                TimerManager.Instance.Register(this);
+            else
+                TimerManager.Instance.Unregister(this);
         }
-
-
         // Méthodes privées
-        private void OnToggle()
-        {
-            toggleRequest = true;  
-            MoveToNextState();
-            
-        }
+        private void OnToggle() => HandleEvent(TimerEvent.Toggle);
+        bool ShouldHaveTimer(TimerState s) => s != TimerState.Idle;
 
         private void OnRequestTransfer()
         {
